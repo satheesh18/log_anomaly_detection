@@ -1,78 +1,53 @@
-# Learning State Transitions in Infrastructure Logs for Anomaly Detection
+# Log Anomaly Detection with Sequence Models
 
-This repository contains the code, experiment outputs, and LaTeX report for a CS 271 machine learning final project. The project studies whether sequence models can learn normal state transitions in infrastructure logs and traces, then use prediction surprise as an anomaly score.
+This codebase trains simple sequence models for infrastructure log anomaly detection. The idea is to convert each log or trace row into a state token, train a model to predict the next state, and use prediction loss as the anomaly score.
 
-The main research gap is practical: log-anomaly papers often report results on one dataset or one preprocessing setup, which makes it hard to tell whether the model learned useful system behavior or benefited from the way the data was prepared. This project compares the same next-state prediction idea across multiple datasets, model architectures, state representations, and evaluation choices.
-
-## What Is Included
-
-Models:
+Implemented models:
 
 - RNN
 - LSTM
 - Transformer encoder
 
-Datasets:
+Supported datasets:
 
-- `openstack`: full Loghub OpenStack archive, grouped by VM instance, with real sparse anomaly labels.
-- `openstack2k`: structured Loghub OpenStack sample with controlled synthetic transition anomalies when real labels are absent.
-- `hdfs`: structured HDFS2k sample with block-derived anomaly labels.
-- `gaia`: GAIA MicroSS web-service traces, using service, endpoint, duration bucket, and message as the main state fields.
+- `openstack`: full Loghub OpenStack archive grouped by VM instance.
+- `openstack2k`: small structured OpenStack sample.
+- `hdfs`: HDFS2k structured log sample.
+- `gaia`: GAIA MicroSS web-service trace sample.
 
-Main report:
-
-- `main.tex`: final report source.
-- `proposal.tex`: original proposal/report draft used for writing style and background.
-- `outputs/final_report/figures/`: final figures referenced by `main.tex`.
-- `outputs/final_report/data/combined_results.csv`: combined results used for the final report.
-
-## Method Summary
-
-Each log or trace row is converted into a discrete state token:
+## Codebase Layout
 
 ```text
-raw row -> stable fields -> normalized state token -> integer id
+src/log_anomaly/
+├── data.py                    # downloads/loads data, builds state tokens, creates windows
+├── models.py                  # RNN, LSTM, and Transformer model definitions
+├── train.py                   # training loop, scoring, thresholding, metrics
+├── experiments.py             # run one experiment configuration
+├── run_grid.py                # run multiple datasets/configurations/models
+├── summarize_results.py       # create summary CSVs from raw grid results
+├── plot_results.py            # create result graphs from CSV files
+└── build_report_artifacts.py  # rebuild final-report combined CSV and figures
 ```
 
-The model sees a fixed-length window of previous states and predicts the next state:
+Other files:
 
 ```text
-previous states -> RNN/LSTM/Transformer -> predicted next state
+main.tex              # final report source
+proposal.tex          # proposal source
+requirements.txt      # Python dependencies
+REPRODUCIBILITY.md    # exact final-report reproduction checklist
 ```
 
-If the true next state has high cross-entropy loss, the transition is treated as surprising. That loss becomes the anomaly score.
+Generated folders:
 
 ```text
-low loss  -> expected transition   -> likely normal
-high loss -> surprising transition -> possible anomaly
+data/                 # downloaded datasets, ignored by Git
+outputs/              # checkpoints/results/figures, mostly ignored by Git
 ```
-
-## Repository Structure
-
-```text
-.
-├── README.md
-├── REPRODUCIBILITY.md
-├── requirements.txt
-├── main.tex
-├── proposal.tex
-├── src/log_anomaly/
-│   ├── data.py                    # dataset loading, parsing, state tokens, windows
-│   ├── models.py                  # RNN, LSTM, Transformer
-│   ├── train.py                   # training, scoring, thresholding, metrics
-│   ├── experiments.py             # one experiment run
-│   ├── run_grid.py                # focused grid runner
-│   ├── summarize_results.py       # summary CSVs
-│   ├── plot_results.py            # general plots
-│   └── build_report_artifacts.py  # final-report CSVs and figures
-└── outputs/final_report/
-    ├── data/
-    └── figures/
-```
-
-The `data/` folder is intentionally ignored by Git because the downloaded datasets are large.
 
 ## Setup
+
+Create an environment and install dependencies:
 
 ```bash
 python3 -m venv .venv
@@ -80,20 +55,39 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Use Python 3.11 if possible. The code uses PyTorch and will use MPS on Apple Silicon when available, otherwise CPU.
+Run commands from the repo root with `PYTHONPATH=src`.
 
-## Data
+## Data Setup
 
-OpenStack, OpenStack2k, and HDFS2k are downloaded automatically by the code when missing.
+OpenStack, OpenStack2k, and HDFS2k are downloaded automatically when needed.
 
-GAIA is not downloaded automatically because the trace archive is large. For GAIA runs, download the MicroSS trace data from the [GAIA dataset repository](https://github.com/CloudWise-OpenSource/GAIA-DataSet), extract the July 2021 webservice trace CSVs, and place them here:
+GAIA is large, so it is not downloaded automatically. For GAIA experiments, download the MicroSS trace data from:
+
+```text
+https://github.com/CloudWise-OpenSource/GAIA-DataSet
+```
+
+Place these files here:
 
 ```text
 data/gaia/MicroSS/trace/usable/trace/trace_table_webservice1_2021-07.csv
 data/gaia/MicroSS/trace/usable/trace/trace_table_webservice2_2021-07.csv
 ```
 
-## Quick Smoke Test
+## How the Pipeline Runs
+
+1. `data.py` loads a dataset.
+2. Each row becomes a state token.
+3. State tokens are mapped to integer ids.
+4. Sliding windows are created.
+5. `models.py` builds an RNN, LSTM, or Transformer.
+6. `train.py` trains on normal windows.
+7. Validation scores choose an anomaly threshold.
+8. Test scores produce accuracy, precision, recall, F1, AUC, and loss.
+
+## Run a Quick Smoke Test
+
+This checks that the environment and code work:
 
 ```bash
 PYTHONPATH=src python -m log_anomaly.experiments \
@@ -104,11 +98,123 @@ PYTHONPATH=src python -m log_anomaly.experiments \
   --results-file outputs/smoke/results.csv
 ```
 
-This should train RNN, LSTM, and Transformer on a tiny HDFS run and write `outputs/smoke/results.csv`.
+Expected output:
 
-## Reproduce the Main Experiments
+```text
+outputs/smoke/results.csv
+outputs/smoke/rnn.pt
+outputs/smoke/lstm.pt
+outputs/smoke/transformer.pt
+```
 
-Run the non-GAIA focused grid:
+## Run One Experiment
+
+`experiments.py` runs one dataset/configuration. By default it trains all three models.
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset openstack2k \
+  --epochs 3 \
+  --seq-len 10 \
+  --embed-dim 64 \
+  --hidden-dim 128 \
+  --num-layers 2 \
+  --batch-size 128 \
+  --output-dir outputs/openstack2k_run \
+  --results-file outputs/openstack2k_run/results.csv
+```
+
+Run only one model:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset hdfs \
+  --models lstm \
+  --epochs 3 \
+  --output-dir outputs/hdfs_lstm \
+  --results-file outputs/hdfs_lstm/results.csv
+```
+
+Useful options:
+
+```text
+--dataset                    openstack, openstack2k, hdfs, or gaia
+--models                     rnn, lstm, transformer
+--seq-len                    number of previous states used as input
+--embed-dim                  embedding size
+--hidden-dim                 RNN/LSTM hidden size or Transformer feedforward size
+--num-layers                 recurrent/Transformer depth
+--batch-size                 training batch size
+--epochs                     training epochs
+--max-events                 limit rows for a faster run
+--gaia-include-status        include GAIA status code in the state token
+```
+
+## Run Each Dataset
+
+OpenStack full archive:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset openstack \
+  --epochs 3 \
+  --batch-size 128 \
+  --output-dir outputs/openstack \
+  --results-file outputs/openstack/results.csv
+```
+
+OpenStack2k sample:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset openstack2k \
+  --epochs 3 \
+  --batch-size 128 \
+  --output-dir outputs/openstack2k \
+  --results-file outputs/openstack2k/results.csv
+```
+
+HDFS2k sample:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset hdfs \
+  --epochs 3 \
+  --batch-size 128 \
+  --output-dir outputs/hdfs \
+  --results-file outputs/hdfs/results.csv
+```
+
+GAIA without status code:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset gaia \
+  --max-events 20000 \
+  --epochs 2 \
+  --batch-size 128 \
+  --output-dir outputs/gaia_no_status \
+  --results-file outputs/gaia_no_status/results.csv
+```
+
+GAIA with status code, for the ablation:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.experiments \
+  --dataset gaia \
+  --max-events 20000 \
+  --epochs 2 \
+  --batch-size 128 \
+  --gaia-include-status \
+  --output-dir outputs/gaia_with_status \
+  --results-file outputs/gaia_with_status/results.csv
+```
+
+## Run the Experiment Grid
+
+`run_grid.py` runs 5 configurations for each selected dataset, and trains RNN, LSTM, and Transformer for every configuration.
+
+Main non-GAIA grid:
 
 ```bash
 PYTHONPATH=src python -m log_anomaly.run_grid \
@@ -118,7 +224,7 @@ PYTHONPATH=src python -m log_anomaly.run_grid \
   --output-dir outputs/experiments
 ```
 
-Run GAIA without status code in the state token. This is the GAIA setting used in the main comparison table:
+GAIA no-status grid:
 
 ```bash
 PYTHONPATH=src python -m log_anomaly.run_grid \
@@ -129,7 +235,7 @@ PYTHONPATH=src python -m log_anomaly.run_grid \
   --output-dir outputs/experiments_gaia_no_status
 ```
 
-Run GAIA with status code included. This is used only for the status-code ablation:
+GAIA status-code grid:
 
 ```bash
 PYTHONPATH=src python -m log_anomaly.run_grid \
@@ -141,44 +247,122 @@ PYTHONPATH=src python -m log_anomaly.run_grid \
   --output-dir outputs/experiments_gaia
 ```
 
-## Rebuild Final Report Figures
+Grid output:
 
-After the experiment CSVs exist, rebuild the final report artifacts:
+```text
+outputs/<run_name>/raw_results.csv
+outputs/<run_name>/checkpoints/rnn.pt
+outputs/<run_name>/checkpoints/lstm.pt
+outputs/<run_name>/checkpoints/transformer.pt
+```
+
+## Summarize Results
+
+Use `summarize_results.py` on any grid CSV:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.summarize_results \
+  --input outputs/experiments/raw_results.csv \
+  --output-dir outputs/experiments/summaries
+```
+
+It creates:
+
+```text
+best_by_dataset_model.csv
+top3_by_dataset.csv
+sequence_sweep.csv
+capacity_sweep.csv
+```
+
+## Plot Results
+
+For a grid-style result file:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.plot_results \
+  --results outputs/experiments/raw_results.csv \
+  --figures-dir outputs/experiments/figures
+```
+
+It creates:
+
+```text
+best_f1_by_dataset_model.png
+sequence_length_sweep.png
+accuracy_vs_f1.png
+precision_recall_f1_panel.png
+```
+
+For a single `experiments.py` result file:
+
+```bash
+PYTHONPATH=src python -m log_anomaly.plot_results \
+  --results outputs/hdfs/results.csv \
+  --output outputs/hdfs/model_comparison.png
+```
+
+## Build Final Report Artifacts
+
+This combines the main grid and GAIA runs into the exact CSV/figures used by `main.tex`:
 
 ```bash
 PYTHONPATH=src python -m log_anomaly.build_report_artifacts
 ```
 
-This writes:
+It reads:
+
+```text
+outputs/experiments/raw_results.csv
+outputs/experiments_gaia_no_status/raw_results.csv
+outputs/experiments_gaia/raw_results.csv
+```
+
+It writes:
 
 ```text
 outputs/final_report/data/combined_results.csv
-outputs/final_report/figures/best_f1_by_dataset_model.png
-outputs/final_report/figures/accuracy_vs_f1.png
-outputs/final_report/figures/precision_recall_f1_panel.png
-outputs/final_report/figures/sequence_length_sweep.png
-outputs/final_report/figures/gaia_status_ablation.png
+outputs/final_report/figures/*.png
 ```
 
-## Compile the Report
+## Output Columns
 
-With a LaTeX installation:
+Result CSVs include:
 
-```bash
-latexmk -pdf main.tex
+```text
+dataset
+model
+seq_len
+embed_dim
+hidden_dim
+num_layers
+epochs
+batch_size
+train_windows
+val_windows
+test_windows
+vocab_size
+loss
+next_event_accuracy
+precision
+recall
+f1
+auc
+threshold
+runtime_seconds
 ```
 
-or:
+Metric meaning:
 
-```bash
-pdflatex main.tex
-pdflatex main.tex
-```
+- `next_event_accuracy`: exact next-state prediction accuracy.
+- `precision`: among predicted anomalies, how many were real anomalies.
+- `recall`: among real anomalies, how many were caught.
+- `f1`: balance between precision and recall.
+- `auc`: how well anomaly scores rank anomalies above normal windows.
+- `threshold`: validation-selected cutoff for anomaly scores.
 
-The report source is kept in Git. LaTeX build artifacts such as `.aux`, `.log`, `.out`, `.fls`, and generated PDFs are ignored.
+## Notes for GitHub
 
-## Current Result Summary
+Large downloaded data, checkpoints, and most generated outputs are ignored by Git. The final report figures and combined final-report CSV are kept so the report can render without rerunning the full grid.
 
-The final report keeps both strong and weak results because that is the point of the project. OpenStack gets high next-event accuracy but weak anomaly F1 because the real anomaly labels are sparse. OpenStack2k gives a clearer controlled-anomaly result. GAIA shows why feature choices matter: including status code makes the task too easy because the label is based on status code, while removing it gives a more honest product-infrastructure trace experiment.
-
-For exact numbers, see `outputs/final_report/data/combined_results.csv` and the Results section of `main.tex`.
+For the exact final-paper reproduction checklist, see `REPRODUCIBILITY.md`.
