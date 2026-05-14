@@ -7,7 +7,7 @@
 \usepackage{listings}
 \usepackage{microtype}
 \usepackage{parskip}
-\usepackage{placeins}
+\usepackage[section]{placeins}
 \usepackage{tikz}
 \usepackage{url}
 \usepackage{xcolor}
@@ -315,6 +315,12 @@ The main grid uses:
 
 For OpenStack, OpenStack2k, and HDFS2k, the focused grid has 45 runs. For GAIA, I ran 15 more runs on a 20,000-row subset of webservice traces. I also ran a GAIA ablation where status code was first included and then removed from the input state.
 
+The code for loading datasets, building state tokens, training the models, running the experiment grid, and regenerating the report figures is available at:
+
+\begin{center}
+\url{https://github.com/satheesh18/log_anomaly_detection}
+\end{center}
+
 \section{Results}
 
 \subsection{Best Model Results}
@@ -349,6 +355,7 @@ GAIA no-status & Transformer & 0.412 & 0.128 & 0.339 & 0.186 & 0.573 \\
 \end{tabular}
 \end{table}
 
+\FloatBarrier
 Figure \ref{fig:best-f1} shows the same idea visually. OpenStack2k is the strongest setting. OpenStack is the weakest in F1 even though its accuracy is high.
 
 \begin{figure}[!htbp]
@@ -358,41 +365,44 @@ Figure \ref{fig:best-f1} shows the same idea visually. OpenStack2k is the strong
 \label{fig:best-f1}
 \end{figure}
 
+\FloatBarrier
 \subsection{Accuracy Can Be Misleading}
 
 The OpenStack result is the clearest example. All models get about 98.6\% next-event accuracy, but the anomaly F1 is only around 0.04. This means the model learned common normal transitions, but it did not separate the rare anomalous VM-instance behavior well.
 
-Figure \ref{fig:accuracy-f1} shows that high accuracy and high F1 are not the same thing.
+Figure \ref{fig:accuracy-f1} compares next-event accuracy and anomaly F1 for the best run of each dataset/model pair. Each point is one dataset and one model. Points on the right have high next-state prediction accuracy, while points near the top have better anomaly detection. The important part is that a point can be far right but still low, which means the model predicts common events well but still does not catch anomalies well.
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.68\textwidth]{outputs/final_report/figures/accuracy_vs_f1.png}
-\caption{Next-event accuracy vs anomaly F1. High prediction accuracy does not always mean good anomaly detection.}
+\includegraphics[width=0.78\textwidth]{outputs/final_report/figures/accuracy_vs_f1.png}
+\caption{Next-event accuracy vs anomaly F1. Each point is the best run for one dataset/model pair.}
 \label{fig:accuracy-f1}
 \end{figure}
 
+\FloatBarrier
 \subsection{GAIA Status-Code Ablation}
 
 GAIA was important because it looked more like product infrastructure traces. But it also showed a common experimental trap.
 
-At first, I included status code in the state token. Since the label was based on status code, the model almost got the answer directly. The best F1 was 0.997. After removing status code, the best F1 dropped to 0.186.
-
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.54\textwidth]{outputs/final_report/figures/gaia_status_ablation.png}
+\includegraphics[width=0.48\textwidth]{outputs/final_report/figures/gaia_status_ablation.png}
 \caption{GAIA ablation. Including status code leaks label information and makes the task too easy.}
 \label{fig:gaia-ablation}
 \end{figure}
 
+At first, I included status code in the state token. Since the label was based on status code, the model almost got the answer directly. The best F1 was 0.997. After removing status code, the best F1 dropped to 0.186.
+
 This does not mean GAIA is bad. It means feature design matters. The status-removed version is harder, but it is more honest because the model has to infer abnormal behavior from endpoint, service, duration, and message patterns.
 
+\FloatBarrier
 \subsection{Sequence Length}
 
 I also tried different sequence lengths. On GAIA, sequence length 10 worked best in the no-status setting. Longer context did not automatically improve results.
 
 \begin{figure}[!htbp]
 \centering
-\includegraphics[width=0.70\textwidth]{outputs/final_report/figures/sequence_length_sweep.png}
+\includegraphics[width=0.82\textwidth]{outputs/final_report/figures/sequence_length_sweep.png}
 \caption{Sequence length sweep. More context is not always better.}
 \label{fig:sequence-sweep}
 \end{figure}

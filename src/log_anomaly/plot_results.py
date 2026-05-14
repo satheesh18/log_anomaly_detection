@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import pandas as pd
 
 
@@ -113,15 +114,70 @@ def plot_sequence_sweep(results: pd.DataFrame, output: Path) -> None:
 
 
 def plot_accuracy_vs_f1(results: pd.DataFrame, output: Path) -> None:
-    fig, ax = plt.subplots(figsize=(7, 5))
+    best = _best_by_dataset_model(results)
+    fig, ax = plt.subplots(figsize=(8, 5.3))
     markers = {"rnn": "o", "lstm": "s", "transformer": "^"}
-    for model, rows in results.groupby("model"):
-        ax.scatter(rows["next_event_accuracy"], rows["f1"], label=model, marker=markers.get(model, "o"), alpha=0.8)
+    colors = {
+        "hdfs": "#4C78A8",
+        "openstack": "#F58518",
+        "openstack2k": "#54A24B",
+        "GAIA no-status": "#B279A2",
+    }
+
+    for _, row in best.iterrows():
+        dataset = row["dataset"]
+        model = row["model"]
+        ax.scatter(
+            row["next_event_accuracy"],
+            row["f1"],
+            color=colors.get(dataset, "#777777"),
+            marker=markers.get(model, "o"),
+            s=80,
+            edgecolor="black",
+            linewidth=0.4,
+            alpha=0.9,
+        )
+
     ax.set_title("Next-event Accuracy vs Anomaly F1")
     ax.set_xlabel("Next-event accuracy")
     ax.set_ylabel("Anomaly F1")
     ax.grid(True, linestyle="--", alpha=0.35)
-    ax.legend(title="Model")
+    ax.set_ylim(bottom=0)
+
+    if "openstack" in set(best["dataset"]):
+        openstack = best[best["dataset"] == "openstack"].sort_values("next_event_accuracy").iloc[-1]
+        ax.annotate(
+            "OpenStack: high accuracy,\nbut low anomaly F1",
+            xy=(openstack["next_event_accuracy"], openstack["f1"]),
+            xytext=(0.72, 0.14),
+            arrowprops={"arrowstyle": "->", "linewidth": 1.0},
+            fontsize=8,
+        )
+
+    if "openstack2k" in set(best["dataset"]):
+        openstack2k = best[best["dataset"] == "openstack2k"].sort_values("f1").iloc[-1]
+        ax.annotate(
+            "OpenStack2k catches\nanomalies better",
+            xy=(openstack2k["next_event_accuracy"], openstack2k["f1"]),
+            xytext=(0.54, 0.52),
+            arrowprops={"arrowstyle": "->", "linewidth": 1.0},
+            fontsize=8,
+        )
+
+    dataset_handles = [
+        Line2D([0], [0], marker="o", color="w", label=dataset, markerfacecolor=color, markersize=8)
+        for dataset, color in colors.items()
+        if dataset in set(best["dataset"])
+    ]
+    model_handles = [
+        Line2D([0], [0], marker=marker, color="black", label=model.upper() if model != "lstm" else "LSTM", linestyle="None", markersize=7)
+        for model, marker in markers.items()
+        if model in set(best["model"])
+    ]
+    first_legend = ax.legend(handles=dataset_handles, title="Dataset", loc="upper right", fontsize=8)
+    ax.add_artist(first_legend)
+    ax.legend(handles=model_handles, title="Model", loc="center right", fontsize=8)
+
     output.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
     plt.savefig(output, dpi=200)
@@ -165,4 +221,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
